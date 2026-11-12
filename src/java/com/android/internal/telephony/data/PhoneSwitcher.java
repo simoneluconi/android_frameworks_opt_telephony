@@ -1131,6 +1131,17 @@ public class PhoneSwitcher extends Handler {
             notifyPreferredDataSubIdChanged();
         }
 
+        // A single-SIM device on the ALLOW_DATA path sends the modem no command
+        // (sendRilCommands), so onDdsSwitchResponse never runs. It is what tells
+        // TelephonyNetworkFactory to re-apply its network requests and
+        // TelephonyRegistry the active data sub. Without it, a request that came
+        // while the SIM was not ready stays unapplied (no mobile data until a
+        // reboot that happens to order it the other way), and the active data sub
+        // stays -1, so SystemUI shows the mobile icon's exclamation mark. The
+        // notifications are sent at the end of this method.
+        final boolean preferredDataChanged = oldPreferredDataPhoneId != mPreferredDataPhoneId
+                || oldPreferredDataSubId != mPreferredDataSubId.get();
+
         // Always force DDS when radio on. This is to handle the corner cases that modem and android
         // DDS are out of sync after APM, AP should force DDS when radio on. long term solution
         // should be having API to query preferred data modem to detect the out-of-sync scenarios.
@@ -1199,6 +1210,17 @@ public class PhoneSwitcher extends Handler {
                 for (int phoneId : newActivePhones) {
                     activate(phoneId);
                 }
+            }
+        }
+        if (mActiveModemCount == 1 && mHalCommandToUse != HAL_COMMAND_PREFERRED_DATA
+                && (diffDetected || preferredDataChanged)) {
+            if (preferredDataChanged) {
+                logl("single SIM without a DDS command: notify the active phone and data sub");
+            }
+            mActivePhoneRegistrants.notifyRegistrants();
+            // the "SIM refresh" branch above already notified a sub-only change
+            if (oldPreferredDataPhoneId != mPreferredDataPhoneId) {
+                notifyPreferredDataSubIdChanged();
             }
         }
         return diffDetected;
